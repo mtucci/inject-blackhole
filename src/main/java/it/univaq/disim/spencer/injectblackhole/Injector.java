@@ -1,14 +1,18 @@
 package it.univaq.disim.spencer.injectblackhole;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.stream.Collectors;
 
 import spoon.reflect.code.CtInvocation;
 import spoon.reflect.code.CtStatement;
 import spoon.reflect.declaration.CtMethod;
-import spoon.reflect.visitor.filter.TypeFilter;
 import it.univaq.disim.spencer.injectblackhole.injection.Delay;
+import it.univaq.disim.spencer.injectblackhole.injection.GitHunkFilter;
 import it.univaq.disim.spencer.injectblackhole.analysis.CodeBase;
 import it.univaq.disim.spencer.injectblackhole.analysis.Method;
 
@@ -27,51 +31,85 @@ public class Injector {
         random.setSeed(seed);
     }
 
-    public Method getRandomMethod() {
-        // Build the Spoon model for the entire library
-        CodeBase targetLibrary = new CodeBase(targetLibraryPath);
-        targetLibrary.load();
-
-        // Randomly select a method to inject the delay
-        List<CtMethod<?>> methods = targetLibrary.getMethods();
-        return new Method(methods.get(random.nextInt(methods.size())));
+    public List<Path> getJavaFiles() {
+        try {
+            return Files.walk(targetLibraryPath)
+                        .filter(p -> p.toString().endsWith(".java"))
+                        .collect(Collectors.toList());
+        } catch (IOException e) {
+            throw new RuntimeException("Error retrieving Java files", e);
+        }
     }
 
-    private CtStatement getRandomStatement(CtMethod<?> method) {
-        // Get all the statements at any depth, including within blocks like if and for
-        List<CtStatement> statements = method.getBody().getElements(new TypeFilter<>(CtStatement.class));
+    public Method getRandomMethod(Path javaFile) {
+        // Build the Spoon model for the entire library
+        CodeBase fileModel = new CodeBase(javaFile);
+        fileModel.load();
 
-        // Randomly select a statement
-        return statements.get(random.nextInt(statements.size()));
+        // Randomly select a method to inject the delay
+        List<CtMethod<?>> methods = fileModel.getMethods();
+        return new Method(methods.get(random.nextInt(methods.size())), fileModel);
+    }
+
+    public Path getRandomJavaFile() {
+        // Randomly select a Java file
+        List<Path> javaFiles = getJavaFiles();
+        return javaFiles.get(random.nextInt(javaFiles.size()));
+    }
+
+    private void injectBeforeRandomStatement(Method method, CtInvocation<Object> invocation) {
+        // Get all the statements at any depth, including within blocks like if and for
+        List<CtStatement> statements = method.getTopLevelStatements();
+
+        // Randomly select a position
+        // Sometimes Spoon will not be able to inject the invocation at the selected position,
+        // so we keep track of the failed positions and retry until we find a good one
+        List<Integer> failedPositions = new ArrayList<>();
+        int position;
+        GitHunkFilter git = new GitHunkFilter(targetLibraryPath);
+        do {
+            position = random.nextInt(statements.size());
+            if (failedPositions.contains(position)) {
+                continue;
+            }
+
+            // Try the injection
+            delay.injectBeforeStatement(statements.get(position), invocation);
+
+            // Save the modified class file
+            method.getCodeBase().save(targetLibraryPath);
+
+            // Check if the injection was successful by checking if the invocation is present in the diff
+            try {
+                if (git.gitDiffFile(method.getClassFile()).isEmpty()) {
+                    failedPositions.add(position);
+                } else {
+                    return;
+                }
+            } catch (IOException | InterruptedException e) {
+                e.printStackTrace();
+            }
+        } while (failedPositions.size() < statements.size());
+
+        // If we reach this point, we were not able to inject the invocation
+        throw new RuntimeException("Failed to inject the invocation in method " + method.getFQMethodName());
     }
 
     public void injectInMethod(Method method, InjectionMode mode) {
-        // Only load the class file of the method, not the entire library,
-        // so that we can save only the modified class file.
-        CodeBase clazz = new CodeBase(method.getClassFile());
-        clazz.load();
-
-        // Find the method in the class file
-        CtMethod<?> ctMethod = clazz.getLauncher().getFactory().Class().getAll().stream()
-            .flatMap(ctClass -> ctClass.getMethods().stream())
-            .filter(ctM -> new Method(ctM).equals(method))
-            .findFirst()
-            .orElseThrow(() -> new RuntimeException("Method not found: " + method.getFQMethodName()));
-        
         // Create the Blackhole invocation
-        CtInvocation<Object> invocation = delay.createBlackholeConsume(clazz.getLauncher().getFactory());
+        CtInvocation<Object> invocation = delay.createBlackholeConsume(method.getCodeBase().getLauncher().getFactory());
 
         // Inject the invocation, depending on the mode
         switch (mode) {
             case BEGIN:
-                delay.injectAtBegin(ctMethod, invocation);
+                delay.injectAtBegin(method.getMethod(), invocation);
                 break;
             case RANDOM_POSITION:
-                delay.injectBeforeStatement(getRandomStatement(ctMethod), invocation);
+                injectBeforeRandomStatement(method, invocation);
                 break;
         }
 
         // Save the modified class file
-        clazz.save(targetLibraryPath);
+        method.getCodeBase().save(targetLibraryPath);
     }
 }

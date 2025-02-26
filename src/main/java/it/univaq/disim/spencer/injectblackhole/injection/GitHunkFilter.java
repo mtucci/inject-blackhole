@@ -15,7 +15,7 @@ public class GitHunkFilter {
             .getParent().toAbsolutePath().normalize();
     }
 
-    private Path findGitDir(Path startingPath) {
+    private static Path findGitDir(Path startingPath) {
         // Check if a .git directory is present in the starting path
         Path gitDir = startingPath.resolve(".git");
         if (gitDir.toFile().exists()) {
@@ -35,38 +35,63 @@ public class GitHunkFilter {
         return new BufferedReader(new InputStreamReader(process.getInputStream()));
     }
 
-    private String getFilteredPatch(Path filePath, String keyword) throws IOException, InterruptedException {
-        // Run the git diff command to get the patch
-        StringBuilder filteredPatch = new StringBuilder();
+    public String gitDiffFile(Path filePath) throws IOException, InterruptedException {
+        // Run 'git diff <file>' command
         try (BufferedReader reader = runGitCommand("git", "diff", filePath.toString())) {
-            boolean withinHunk = false;
-            boolean keepThisHunk = false;
-            StringBuilder currentHunk = new StringBuilder();
+            StringBuilder diff = new StringBuilder();
             String line;
             while ((line = reader.readLine()) != null) {
-                // Detect the start of a new hunk
-                if (line.startsWith("@@ ")) {
-                    if (keepThisHunk) {
-                        filteredPatch.append(currentHunk);
-                    }
-                    currentHunk = new StringBuilder();
-                    withinHunk = true;
-                }
+                diff.append(line).append("\n");
+            }
+            return diff.toString();
+        }
+    }
 
-                // Keep the lines within the hunk
-                if (withinHunk) {
-                    currentHunk.append(line).append("\n");
-                    // Only keep additions that contain the keyword
-                    if (line.startsWith("+") && line.contains(keyword)) {
-                        keepThisHunk = true;
-                    }
-                } else {
-                    filteredPatch.append(line).append("\n");
+    static String fixPatch(String patch, String keyword) {
+        StringBuilder filteredPatch = new StringBuilder();
+
+        // Read the patch line by line
+        boolean withinHunk = false;
+        boolean keepThisHunk = false;
+        StringBuilder currentHunk = new StringBuilder();
+        for (String line : patch.lines().toList()) {
+            // Detect the start of a new hunk
+            if (line.startsWith("@@ ")) {
+                if (keepThisHunk) {
+                    filteredPatch.append(currentHunk);
                 }
+                currentHunk = new StringBuilder();
+                withinHunk = true;
+                keepThisHunk = false;
+            }
+
+            // Keep the lines within the hunk
+            if (withinHunk) {
+                currentHunk.append(line).append("\n");
+                // Only keep additions that contain the keyword
+                if (line.startsWith("+") && line.contains(keyword)) {
+                    keepThisHunk = true;
+                }
+            } else {
+                filteredPatch.append(line).append("\n");
             }
         }
 
+        // Append the last hunk
+        if (keepThisHunk) {
+            filteredPatch.append(currentHunk);
+        }
+
         return filteredPatch.toString();
+
+    }
+
+    private String getFilteredPatch(Path filePath, String keyword) throws IOException, InterruptedException {
+        // Run the git diff command to get the patch
+        String patch = gitDiffFile(filePath);
+
+        // Filter the patch to keep only the hunks that contain the keyword
+        return fixPatch(patch, keyword);
     }
 
     private void discardChanges(Path filePath) throws IOException, InterruptedException {
