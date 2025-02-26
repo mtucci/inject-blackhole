@@ -40,18 +40,17 @@ public class InjectBlackhole implements Callable<Integer> {
             description = "Injection mode: ${COMPLETION-CANDIDATES}")
     private InjectionMode injectionMode;
 
-    public void injectInRandomMethod() {
-        Injector injector = new Injector(targetLibraryPath, delay);
-        if (randomSeed != 0) {
-            injector.setSeed(randomSeed);
-        }
+    @Option(names = { "-n", "--num-injections" }, defaultValue = "1",
+            description = "Number of injections to perform (each in a different method)")
+    private int numInjections = 1;
 
-        // Select a random method
-        LOGGER.info("Analyzing target library: " + targetLibraryPath);
-        Method method = injector.getRandomMethod();
+    public void injectInRandomMethod(Injector injector) {
+        // Randomly select a method
+        Path classFile = injector.getRandomJavaFile();
+        Method method = injector.getRandomMethod(classFile);
         LOGGER.info("Selected method %s in file %s".formatted(
-            method.getFQMethodName(), method.getClassFile()));
-        
+            method.getFQMethodName(), classFile));
+
         // Inject the delay
         LOGGER.info("Injecting delay at %s".formatted(injectionMode));
         injector.injectInMethod(method, injectionMode);
@@ -76,7 +75,15 @@ public class InjectBlackhole implements Callable<Integer> {
             return 1;
         }
 
-        injectInRandomMethod();
+        LOGGER.info("Analyzing target library: " + targetLibraryPath);
+        Injector injector = new Injector(targetLibraryPath, delay);
+        if (randomSeed != 0) {
+            injector.setSeed(randomSeed);
+        }
+
+        for (int i = 0; i < numInjections; i++) {
+            injectInRandomMethod(injector);
+        }
 
         return 0;
     }
