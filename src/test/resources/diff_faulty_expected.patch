@@ -1,0 +1,12 @@
+diff --git a/src/main/java/io/reactivex/rxjava3/internal/operators/maybe/MaybeIgnoreElement.java b/src/main/java/io/reactivex/rxjava3/internal/operators/maybe/MaybeIgnoreElement.java
+index dcdbd2cd7..ea3e3c416 100644
+--- a/src/main/java/io/reactivex/rxjava3/internal/operators/maybe/MaybeIgnoreElement.java
++++ b/src/main/java/io/reactivex/rxjava3/internal/operators/maybe/MaybeIgnoreElement.java
+@@ -30,6 +30,7 @@ public final class MaybeIgnoreElement<T> extends AbstractMaybeWithUpstream<T, T>
+ 
+     @Override
+     protected void subscribeActual(MaybeObserver<? super T> observer) {
++        org.openjdk.jmh.infra.Blackhole.consumeCPU(1000000L);
+         source.subscribe(new IgnoreMaybeObserver<>(observer));
+     }
+ 

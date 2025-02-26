@@ -1,0 +1,12 @@
+diff --git a/src/main/java/io/reactivex/rxjava3/internal/operators/single/SingleDefer.java b/src/main/java/io/reactivex/rxjava3/internal/operators/single/SingleDefer.java
+index ddf2b2c34..b82999e18 100644
+--- a/src/main/java/io/reactivex/rxjava3/internal/operators/single/SingleDefer.java
++++ b/src/main/java/io/reactivex/rxjava3/internal/operators/single/SingleDefer.java
+@@ -36,6 +36,7 @@ public final class SingleDefer<T> extends Single<T> {
+             next = Objects.requireNonNull(singleSupplier.get(), "The singleSupplier returned a null SingleSource");
+         } catch (Throwable e) {
+             Exceptions.throwIfFatal(e);
++            org.openjdk.jmh.infra.Blackhole.consumeCPU(1000000L);
+             EmptyDisposable.error(e, observer);
+             return;
+         }
