@@ -5,7 +5,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Random;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 import spoon.reflect.code.CtInvocation;
@@ -15,9 +17,12 @@ import it.univaq.disim.spencer.injectblackhole.injection.Delay;
 import it.univaq.disim.spencer.injectblackhole.injection.GitHunkFilter;
 import it.univaq.disim.spencer.injectblackhole.analysis.CodeBase;
 import it.univaq.disim.spencer.injectblackhole.analysis.Method;
+import it.univaq.disim.spencer.injectblackhole.exception.NoSuitableStatementsInMethod;
+import spoon.SpoonException;
 
 public class Injector {
 
+    private static final Logger LOGGER = Logger.getLogger(Injector.class.getName());
     private static Random random = new Random();
     private Path targetLibraryPath;
     private Delay delay;
@@ -41,14 +46,18 @@ public class Injector {
         }
     }
 
-    public Method getRandomMethod(Path javaFile) {
+    public Optional<Method> getRandomMethod(Path javaFile) {
         // Build the Spoon model for the entire library
         CodeBase fileModel = new CodeBase(javaFile);
         fileModel.load();
 
         // Randomly select a method to inject the delay
         List<CtMethod<?>> methods = fileModel.getMethods();
-        return new Method(methods.get(random.nextInt(methods.size())), fileModel);
+        if (methods.isEmpty()) {
+            return Optional.empty();
+        }
+        Method randomMethod = new Method(methods.get(random.nextInt(methods.size())), fileModel);
+        return Optional.of(randomMethod);
     }
 
     public Path getRandomJavaFile() {
@@ -60,6 +69,9 @@ public class Injector {
     private void injectBeforeRandomStatement(Method method, CtInvocation<Object> invocation) {
         // Get all the statements at any depth, including within blocks like if and for
         List<CtStatement> statements = method.getTopLevelStatements();
+        if (statements.isEmpty()) {
+            throw new NoSuitableStatementsInMethod("No suitable statements in method " + method.getFQMethodName());
+        }
 
         // Randomly select a position
         // Sometimes Spoon will not be able to inject the invocation at the selected position,
@@ -76,18 +88,31 @@ public class Injector {
             // Try the injection
             delay.injectBeforeStatement(statements.get(position), invocation);
 
-            // Save the modified class file
-            method.getCodeBase().save(targetLibraryPath);
-
-            // Check if the injection was successful by checking if the invocation is present in the diff
             try {
+                // Save the modified class file
+                method.getCodeBase().save(targetLibraryPath);
+            } catch (SpoonException e) {
+                LOGGER.warning("Error saving the modified class file: " + e.getMessage());
+                failedPositions.add(position);
+                try {
+                    git.discardChanges(method.getClassFile());
+                } catch (IOException | InterruptedException e1) {
+                    LOGGER.severe("Error discarding changes: " + e1.getMessage());
+                    e1.printStackTrace();
+                }
+                continue;
+            }
+
+            try {
+                // Check if the injection was successful by checking if the invocation is present in the diff
                 if (git.gitDiffFile(method.getClassFile()).isEmpty()) {
                     failedPositions.add(position);
                 } else {
                     return;
                 }
             } catch (IOException | InterruptedException e) {
-                e.printStackTrace();
+                LOGGER.warning("Error during git diff check: " + e.getMessage());
+                failedPositions.add(position);
             }
         } while (failedPositions.size() < statements.size());
 
