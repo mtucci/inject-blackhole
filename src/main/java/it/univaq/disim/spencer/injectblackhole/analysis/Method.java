@@ -51,6 +51,19 @@ public class Method {
         return fqClassName + "#" + methodName;
     }
 
+    @Override
+    public boolean equals(Object obj) {
+        if (obj == this) {
+            return true;
+        }
+        if (!(obj instanceof Method)) {
+            return false;
+        }
+        Method other = (Method) obj;
+        return this.getFQMethodName().equals(other.getFQMethodName()) &&
+               this.getClassFile().equals(other.getClassFile());
+    }
+
     /**
      * Get statements in the method body, including those inside blocks (like try/catch, loops).
      * Avoid argument expressions.
