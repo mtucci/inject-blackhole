@@ -11,8 +11,7 @@ public class GitHunkFilter {
     private Path gitRepositoryPath;
 
     public GitHunkFilter(Path gitRepositoryPath) {
-        this.gitRepositoryPath = findGitDir(gitRepositoryPath)
-            .getParent().toAbsolutePath().normalize();
+        this.gitRepositoryPath = findGitDir(gitRepositoryPath.toAbsolutePath().normalize()).getParent();
     }
 
     private static Path findGitDir(Path startingPath) {
@@ -94,12 +93,12 @@ public class GitHunkFilter {
         return fixPatch(patch, keyword);
     }
 
-    private void discardChanges(Path filePath) throws IOException, InterruptedException {
+    public void discardChanges(Path filePath) throws IOException, InterruptedException {
         // Run 'git checkout -- <file>' to discard modifications
         runGitCommand("git", "checkout", "--", filePath.toString()).close();
     }
 
-    private void applyPatch(String patchContent) throws IOException, InterruptedException {
+    private void applyPatch(String patchContent) throws IOException, InterruptedException, RuntimeException {
         // Start 'git apply' process
         ProcessBuilder processBuilder = new ProcessBuilder("git", "apply");
         processBuilder.redirectErrorStream(true);
@@ -132,6 +131,14 @@ public class GitHunkFilter {
         Path relativePath = gitRepositoryPath.relativize(filePath);
         String patch = getFilteredPatch(relativePath, keyword);
         discardChanges(relativePath);
+
+        // Skip if the patch contains removals
+        for (String line : patch.lines().toList()) {
+            if (line.startsWith("-") && !line.startsWith("---")) {
+                throw new RuntimeException("Patch contains removals");
+            }
+        }
+
         applyPatch(patch);
     }
 }
