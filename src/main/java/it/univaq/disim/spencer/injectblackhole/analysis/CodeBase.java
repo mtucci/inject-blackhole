@@ -38,7 +38,7 @@ public class CodeBase {
         launcher.buildModel();
     } 
 
-    public void save(Path destination) {
+    public void save(Path destination) throws IllegalStateException{
         launcher.setSourceOutputDirectory(destination.toString());
         launcher.prettyprint();
     }

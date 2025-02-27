@@ -29,7 +29,7 @@ public class TestMethod {
     }
 
     @Test
-    public void testGetTopLevelStatements() {
+    public static void testGetTopLevelStatements() {
         int expected = 12;
         int actual = method.getTopLevelStatements().size();
         assert expected == actual : "Expected " + expected + " statements, but got " + actual;
