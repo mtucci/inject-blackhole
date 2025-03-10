@@ -130,6 +130,12 @@ public class GitHunkFilter {
     public void applyFilteredPatch(Path filePath, String keyword) throws IOException, InterruptedException {
         Path relativePath = gitRepositoryPath.relativize(filePath);
         String patch = getFilteredPatch(relativePath, keyword);
+
+        // Skip if the patch is empty
+        if (patch.isEmpty()) {
+            throw new RuntimeException("Patch is empty (no detected modifications)");
+        }
+
         discardChanges(relativePath);
 
         // Skip if the patch contains removals
