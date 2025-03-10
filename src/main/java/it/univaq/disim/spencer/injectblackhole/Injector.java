@@ -10,15 +10,15 @@ import java.util.Random;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
-import spoon.reflect.code.CtInvocation;
-import spoon.reflect.code.CtStatement;
-import spoon.reflect.declaration.CtMethod;
-import it.univaq.disim.spencer.injectblackhole.injection.Delay;
-import it.univaq.disim.spencer.injectblackhole.injection.GitHunkFilter;
 import it.univaq.disim.spencer.injectblackhole.analysis.CodeBase;
 import it.univaq.disim.spencer.injectblackhole.analysis.Method;
 import it.univaq.disim.spencer.injectblackhole.exception.NoSuitableStatementsInMethod;
+import it.univaq.disim.spencer.injectblackhole.injection.Delay;
+import it.univaq.disim.spencer.injectblackhole.injection.GitHunkFilter;
 import spoon.SpoonException;
+import spoon.reflect.code.CtInvocation;
+import spoon.reflect.code.CtStatement;
+import spoon.reflect.declaration.CtMethod;
 
 public class Injector {
 
@@ -46,6 +46,34 @@ public class Injector {
         }
     }
 
+    public Optional<Method> findMethod(String fqMethodName) {
+        Method target = new Method(fqMethodName);
+
+        // Convert package name to path
+        if (target.getPackageName() == null) {
+            return Optional.empty();
+        }
+        Path packagePath = targetLibraryPath.resolve(target.getPackageName().replace('.', '/'));
+        if (!Files.exists(packagePath)) {
+            return Optional.empty();
+        }
+
+        // Build the Spoon model for the entire library
+        CodeBase fileModel = new CodeBase(packagePath);
+        fileModel.load();
+
+        // Find the method by name
+        List<CtMethod<?>> methods = fileModel.getMethods();
+        for (CtMethod<?> m : methods) {
+            Method thisMethod = new Method(m);
+            if (thisMethod.equals(target)) {
+                thisMethod.setCodeBase(fileModel);
+                return Optional.of(thisMethod);
+            }
+        }
+        return Optional.empty();
+    }
+
     public Optional<Method> getRandomMethod(Path javaFile) {
         // Build the Spoon model for the entire library
         CodeBase fileModel = new CodeBase(javaFile);
@@ -56,7 +84,8 @@ public class Injector {
         if (methods.isEmpty()) {
             return Optional.empty();
         }
-        Method randomMethod = new Method(methods.get(random.nextInt(methods.size())), fileModel);
+        Method randomMethod = new Method(methods.get(random.nextInt(methods.size())));
+        randomMethod.setCodeBase(fileModel);
         return Optional.of(randomMethod);
     }
 
