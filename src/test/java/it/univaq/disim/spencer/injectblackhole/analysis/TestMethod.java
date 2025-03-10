@@ -22,7 +22,7 @@ public class TestMethod {
         codeBase.load();
         for (CtMethod<?> m : codeBase.getMethods()) {
             if (m.getSimpleName().equals(TEST_METHOD)) {
-                method = new Method(m, codeBase);
+                method = new Method(m);
                 break;
             }
         }
