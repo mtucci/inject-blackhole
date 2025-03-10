@@ -15,6 +15,11 @@ import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
+enum Mode {
+    TARGETED,
+    RANDOM_METHOD
+}
+
 enum InjectionMode {
     BEGIN,
     RANDOM_POSITION
@@ -31,24 +36,32 @@ public class InjectBlackhole implements Callable<Integer> {
     private Injector injector;
 
     @Option(names = { "-t", "--target" }, required = true,
-            description = "The target library path")
+            description = "The target library base path")
     private Path targetLibraryPath;
 
     @Option(names = { "-d", "--delay" }, required = true,
             description = "The delay in number of tokens")
     private long delay;
 
+    @Option(names = { "-m", "--mode" }, defaultValue = "TARGETED",
+            description = "Mode: ${COMPLETION-CANDIDATES}")
+    private Mode mode;
+
+    @Option(names = { "-x", "--target-method" },
+            description = "The target method to inject the delay")
+    private String targetMethod;
+
     @Option(names = { "-s", "--seed" },
             description = "Random seed for reproducibility")
     private int randomSeed;
 
-    @Option(names = { "-m", "--mode" }, defaultValue = "BEGIN",
+    @Option(names = { "-i", "--injection-mode" }, defaultValue = "BEGIN",
             description = "Injection mode: ${COMPLETION-CANDIDATES}")
     private InjectionMode injectionMode;
 
     @Option(names = { "-n", "--num-injections" }, defaultValue = "1",
             description = "Number of injections to perform (each in a different method)")
-    private int numInjections = 1;
+    private int numInjections;
 
     private Method selectRandomMethod() {
         Method method = null;
@@ -60,6 +73,33 @@ public class InjectBlackhole implements Callable<Integer> {
             }
         }
         return method;
+    }
+
+    private boolean injectInMethod(Method method) {
+        // Inject the delay
+        LOGGER.info("Injecting delay at %s".formatted(injectionMode));
+        try {
+            injector.injectInMethod(method, injectionMode);
+        } catch (NoSuitableStatementsInMethod e) {
+            LOGGER.info("No suitable statements found in method %s".formatted(method.getFQMethodName()));
+            return false;
+        } catch (RuntimeException e) {
+            LOGGER.severe("Error while injecting the delay: " + e.getMessage());
+            return false;
+        }
+
+        // Sometimes Spoon messes up the code in other parts when writing back the modifications.
+        // This seems to happen when the class contains some weird formatting.
+        // To avoid this, we resort to filter out all the diff hunks that do not contain our invocation.
+        try {
+            new GitHunkFilter(targetLibraryPath)
+                .applyFilteredPatch(method.getClassFile(), "Blackhole.consumeCPU");
+        } catch (IOException | InterruptedException | RuntimeException e) {
+            LOGGER.severe("Error while filtering the patch: " + e.getMessage());
+            return false;
+        }
+
+        return true;
     }
 
     private void injectInRandomMethods(int numInjections) {
@@ -74,35 +114,13 @@ public class InjectBlackhole implements Callable<Integer> {
             LOGGER.info("Selected method %s in file %s".formatted(
                 method.getFQMethodName(), method.getClassFile()));
 
-            // Inject the delay
-            LOGGER.info("Injecting delay at %s".formatted(injectionMode));
-            try {
-                injector.injectInMethod(method, injectionMode);
-            } catch (NoSuitableStatementsInMethod e) {
-                LOGGER.info("No suitable statements found in method %s".formatted(method.getFQMethodName()));
-                continue;
-            } catch (RuntimeException e) {
-                LOGGER.severe("Error while injecting the delay: " + e.getMessage());
-                LOGGER.info("Selecting anothet Java file and method...");
+            // Try to inject the delay
+            if (injectInMethod(method)) {
+                successfulInjections.add(method);
+            } else {
                 failedInjections.add(method);
-                continue;
-            }
-
-            // Sometimes Spoon messes up the code in other parts when writing back the modifications.
-            // These seems to happen when the class contains some weird formatting.
-            // To avoid this, we resort to filter out all the diff hunks that do not contain our invocation.
-            try {
-                new GitHunkFilter(targetLibraryPath)
-                    .applyFilteredPatch(method.getClassFile(), "Blackhole.consumeCPU");
-            } catch (IOException | InterruptedException | RuntimeException e) {
-                LOGGER.severe("Error while filtering the patch: " + e.getMessage());
                 LOGGER.info("Selecting anothet Java file and method...");
-                failedInjections.add(method);
-                continue;
             }
-
-            // If the injection was successful, add the method to the list
-            successfulInjections.add(method);
         }
 
         // Print successful and failed injections
@@ -130,8 +148,26 @@ public class InjectBlackhole implements Callable<Integer> {
             injector.setSeed(randomSeed);
         }
 
-        LOGGER.info("Injecting delay in %d random methods".formatted(numInjections));
-        injectInRandomMethods(numInjections);
+        if (mode == Mode.TARGETED && targetMethod == null) {
+            LOGGER.severe("Target method is required in targeted mode");
+            return 1;
+        }
+
+        switch (mode) {
+            case TARGETED -> {
+                LOGGER.info("Injecting delay in method: " + targetMethod);
+                Optional<Method> method = injector.findMethod(targetMethod);
+                if (method.isEmpty()) {
+                    LOGGER.severe("Method not found: " + targetMethod);
+                    return 1;
+                }
+                injectInMethod(method.get());
+            }
+            case RANDOM_METHOD -> {
+                LOGGER.info("Injecting delay in %d random methods".formatted(numInjections));
+                injectInRandomMethods(numInjections);
+            }
+        }
 
         return 0;
     }
