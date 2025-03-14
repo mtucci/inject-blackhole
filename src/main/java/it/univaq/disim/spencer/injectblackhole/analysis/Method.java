@@ -96,9 +96,6 @@ public class Method {
             return false;
         }
         Method other = (Method) obj;
-        // TODO change the comparison to signature and class
-        //return this.getFQMethodName().equals(other.getFQMethodName()) &&
-        //       this.getClassFile().equals(other.getClassFile());
         return this.packageName.equals(other.packageName) &&
                this.className.equals(other.className) &&
                this.methodName.equals(other.methodName);

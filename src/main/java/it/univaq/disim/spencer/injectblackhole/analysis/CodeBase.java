@@ -35,11 +35,11 @@ public class CodeBase {
           }
         );
         launcher.addInputResource(path.toString());
+        launcher.setSourceOutputDirectory(path.toString());
         launcher.buildModel();
     } 
 
-    public void save(Path destination) throws IllegalStateException{
-        launcher.setSourceOutputDirectory(destination.toString());
+    public void save() throws IllegalStateException{
         launcher.prettyprint();
     }
 

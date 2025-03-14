@@ -119,7 +119,7 @@ public class Injector {
 
             try {
                 // Save the modified class file
-                method.getCodeBase().save(targetLibraryPath);
+                method.getCodeBase().save();
             } catch (SpoonException e) {
                 LOGGER.warning("Error saving the modified class file: " + e.getMessage());
                 failedPositions.add(position);
@@ -164,6 +164,6 @@ public class Injector {
         }
 
         // Save the modified class file
-        method.getCodeBase().save(targetLibraryPath);
+        method.getCodeBase().save();
     }
 }
