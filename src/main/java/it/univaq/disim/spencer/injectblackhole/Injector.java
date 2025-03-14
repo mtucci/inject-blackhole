@@ -80,7 +80,9 @@ public class Injector {
         fileModel.load();
 
         // Randomly select a method to inject the delay
-        List<CtMethod<?>> methods = fileModel.getMethods();
+        List<CtMethod<?>> methods = fileModel.getMethods().stream()
+            .filter(method -> !method.isAbstract()) // Exclude abstract methods
+            .collect(Collectors.toList());
         if (methods.isEmpty()) {
             return Optional.empty();
         }
